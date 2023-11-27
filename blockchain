@@ -1,0 +1,220 @@
+import hashlib
+import time
+import random
+from hashlib import sha256
+from Crypto.PublicKey import ECC
+from Crypto.Signature import DSS
+from Crypto.Hash import SHA256
+
+class Block:
+    def __init__(self, height, prev_hash, coinbase, transactions):
+        self.height = height
+        self.time = time.time()
+        self.prev_hash = prev_hash
+        self.coinbase = coinbase
+        self.transactions = transactions
+        self.merkle_root = self.calculate_merkle_root()
+        self.nonce = 0
+        self.hash = self.mine(difficulty=2)  # Предположим, что сложность равна 2
+
+    def calculate_merkle_root(self):
+        # Реализуйте логику создания Merkle tree и вычисления корня
+        pass
+
+    def mine(self, difficulty):
+        target = 2 ** (256 - difficulty)
+        self.hash = self.calculate_hash()
+        while int(self.hash, 16) >= target:
+            self.nonce += 1
+            self.hash = self.calculate_hash()
+
+    def calculate_hash(self):
+        block_str = f"{self.height}{self.time}{self.prev_hash}{self.coinbase}{self.nonce}"
+        return hashlib.sha256(block_str.encode()).hexdigest()
+
+
+class Transaction:
+    def __init__(self, inputs, outputs, sign, public_key):
+        self.inputs = inputs
+        self.outputs = outputs
+        self.sign = sign
+        self.public_key = public_key
+
+class Client:
+    def __init__(self, name):
+        self.name = name
+        self.sk = ECC.generate(curve='P-256')
+        self.pk = self.sk.public_key()
+        self.addr = sha256(self.pk.export_key(format='DER')).hexdigest()
+        self.utxo = []
+        self.balance = 0
+
+    def create_transaction(self, inputs, outputs):
+        # Создание транзакции
+        transaction = {
+            "inputs": inputs,
+            "outputs": outputs,
+            "sign": None,  # Подпись будет добавлена позже
+            "pk": self.pk.export_key(format='DER').hex()
+        }
+
+        # Подписываем транзакцию
+        message = ""
+        for input_utxo in inputs:
+            message += input_utxo["input_addr"] + str(input_utxo["input_amount"])
+        for output_utxo in outputs:
+            message += output_utxo["output_addr"] + str(output_utxo["output_amount"])
+
+        h = SHA256.new(message.encode())
+        signer = DSS.new(self.sk, 'fips-186-3')
+        signature = signer.sign(h)
+        transaction["sign"] = signature.hex()
+
+        return transaction
+
+    def read_transaction(self, block, height):
+        for transaction in block.transactions:
+            for input_utxo in transaction["inputs"]:
+                if input_utxo["input_addr"] == self.addr:
+                    self.utxo.remove(input_utxo)
+                    self.balance -= input_utxo["input_amount"]
+
+            for output_utxo in transaction["outputs"]:
+                if output_utxo["output_addr"] == self.addr:
+                    self.utxo.append(output_utxo)
+                    self.balance += output_utxo["output_amount"]
+
+    def get_balance(self):
+        return self.balance
+
+class Node:
+    def __init__(self, node_id, difficulty=2):  # Добавьте difficulty как параметр по умолчанию
+        self.node_id = node_id
+        self.chain = [self.create_genesis_block()]
+        self.utxo = []  # список UTXO
+        self.difficulty = difficulty  # уровень сложности proof-of-work
+        self.clients = {}  # словарь для хранения клиентов
+
+    def create_genesis_block(self):
+        genesis_block = Block(0, "0", 1000000, [])  # пример начального баланса
+        genesis_block.mine(self.difficulty)
+        self.chain.append(genesis_block)
+        return genesis_block
+
+    def add_client(self, client_id, balance):
+        self.clients[client_id] = Client(client_id, balance)
+
+    def mine_block(self):
+        # выбор случайной ноды в качестве майнера
+        miner_node = random.choice(list(self.clients.keys()))
+        
+        # создание транзакций для нового блока
+        transactions = self.create_transactions(miner_node)
+        
+        # создание нового блока
+        new_block = Block(len(self.chain), self.chain[-1].hash, 0, transactions)
+        
+        # майнинг блока
+        new_block.mine(self.difficulty)
+        
+        # финализация блока
+        self.finalize_block(new_block)
+
+        # рассылка нового блока остальным нодам
+        self.broadcast_block(new_block)
+
+    def create_transactions(self, miner_node):
+        # создание транзакций для нового блока
+        transactions = []
+        miner_wallet = self.clients[miner_node]
+
+        # пример создания транзакции
+        transaction = Transaction(
+            [{"input_addr": miner_wallet.wallet_address, "input_amount": 50}],  # пример входа UTXO
+            [{"output_addr": "recipient_wallet", "output_amount": 10}],  # пример выхода UTXO
+            "signature", "public_key"
+        )
+        transactions.append(transaction)
+
+        return transactions
+
+    def finalize_block(self, block):
+        # добавление output_UTXO каждой транзакции в свой список UTXO
+        for transaction in block.transactions:
+            for output in transaction.outputs:
+                self.utxo.append(output)
+
+        # исключение input_UTXO каждой транзакции из своего списка UTXO
+        for transaction in block.transactions:
+            for input_utxo in transaction.inputs:
+                if input_utxo in self.utxo:
+                    self.utxo.remove(input_utxo)
+
+    def broadcast_block(self, block):
+        # рассылка финализованного блока остальным нодам
+        for node_id in self.clients:
+            if node_id != self.node_id:
+                self.clients[node_id].receive_block(block)
+
+    def validate_block(self, block):
+        # 1) Пересчет дерева Меркле и сравнение корневого хэш-кода
+        merkle_root = block.calculate_merkle_root()
+        if merkle_root != block.merkle_root:
+            return False
+
+        # 2) Проверка правильности решения майнером
+        target = 2 ** (256 - self.difficulty)
+        block_hash = block.calculate_hash()
+        if int(block_hash, 16) >= target:
+            return False
+
+        # 3) Проверка номера блока
+        if block.height != len(self.chain):
+            return False
+
+        # 4) Проверка хэш-кода предыдущего блока
+        if block.height > 0 and block.prev_hash != self.chain[-1].hash:
+            return False
+
+        # 5) Проверка времени создания блока
+        if block.height > 0 and block.time <= self.chain[-1].time:
+            return False
+
+        # 6) Проверка значения coinbase
+        if block.coinbase <= 0 or block.coinbase != self.chain[-1].coinbase - 5:
+            return False
+
+        # 7) Проверка UTXO транзакций
+        for transaction in block.transactions:
+            for input_utxo in transaction.inputs:
+                if input_utxo not in self.utxo:
+                    return False
+
+        # 8) Проверка суммы входов и выходов транзакций
+        for transaction in block.transactions:
+            input_sum = sum(utxo["input_amount"] for utxo in transaction.inputs)
+            output_sum = sum(utxo["output_amount"] for utxo in transaction.outputs)
+            if input_sum != output_sum:
+                return False
+
+        # 9) Проверка цифровых подписей
+        # (Для упрощения считаем, что все подписи верны)
+
+        # 10) Добавление новых UTXO
+        for transaction in block.transactions:
+            for output_utxo in transaction.outputs:
+                self.utxo.append(output_utxo)
+
+        # 11) Исключение потраченных UTXO
+        for transaction in block.transactions:
+            for input_utxo in transaction.inputs:
+                if input_utxo in self.utxo:
+                    self.utxo.remove(input_utxo)
+
+        # Все проверки пройдены успешно, включаем блок в цепочку
+        self.chain.append(block)
+        return True
+# Пример использования
+node = Node(node_id="node1")
+node.add_client("client1", balance=100)
+node.mine_block()
