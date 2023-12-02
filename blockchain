@@ -11,8 +11,17 @@ from Crypto.Hash import SHA256
 
 # параметры системы
 INITIAL_COINBASE_AMOUNT = 1000000
-MINING_DIFFICULTY = 5
+MINING_DIFFICULTY = 10
 BLOCK_REWARD = 5
+
+# значения для читаемого вывода
+TAB2 = '\t' * 2
+TAB3 = '\t' * 3
+TAB4 = '\t' * 4
+TAB5 = '\t' * 5
+TAB6 = '\t' * 6
+LEFT_P = '{'
+RIGHT_P = '}'
 
 
 def calculate_merkle_root(data_list: list):
@@ -35,7 +44,6 @@ def calculate_merkle_root(data_list: list):
 
 
 class Transaction:
-    # todo: реализовать __repr__ или __str__ для нормального вывода
     def __init__(self, inputs: list[dict[str, int]], outputs: list[dict[str, int]], signature: hex, public_key: hex):
         """Инициализация транзакции"""
         self.inputs = inputs
@@ -48,13 +56,27 @@ class Transaction:
         transaction_str = f"{self.inputs}{self.outputs}{self.signature}{self.public_key}"
         return hashlib.sha256(transaction_str.encode()).hexdigest()
 
+    def __repr__(self):
+        """Вывод транзакции в читаемом виде"""
+        res = [f'\n{TAB4}{LEFT_P}\n{TAB5}Входы транзакции:']
+        for i, inp in enumerate(self.inputs, 1):
+            res.append(f'{TAB6}Вход {i}\n{TAB6}{str(inp)}')
+
+        res.append(f'{TAB5}Выходы транзакции:')
+        for i, out in enumerate(self.outputs, 1):
+            res.append(f'{TAB6}Выход {i}\n{TAB6}{str(out)}')
+
+        res.append(f'{TAB5}Подпись: {self.signature}')
+        res.append(f'{TAB5}Открытый ключ: {self.public_key}')
+        res.append(f'{TAB4}{RIGHT_P}\n')
+        return '\n'.join(res)
+
 
 class Block:
-    # todo: реализовать __repr__ или __str__ для нормального вывода
     def __init__(self, height: int, prev_hash: hex, coinbase: int, transactions: list[Transaction]):
         """Инициализация блока"""
         self.height = height
-        self.time = datetime.datetime.now()
+        self.time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.merkle_root = 0x0
         self.prev_hash = prev_hash
         self.nonce = 0
@@ -75,6 +97,25 @@ class Block:
         """Вычисление хеш-кода блока"""
         block_str = f"{self.height}{self.time}{self.prev_hash}{self.coinbase}{self.nonce}"
         return hashlib.sha256(block_str.encode()).hexdigest()
+
+    def __repr__(self):
+        """Вывод блока в читаемом виде"""
+        res = [f'\n\t{LEFT_P}\n{TAB2}Заголовок блока:',
+               f'{TAB3}Номер блока: {self.height}',
+               f'{TAB3}Дата и время создания: {self.time}',
+               f'{TAB3}Корень древа Меркла: {self.merkle_root}',
+               f'{TAB3}Хеш-код предыдущего блока: {self.prev_hash}',
+               f'{TAB3}Nonce: {self.nonce}',
+               f'{TAB3}Хеш-код текущего блока: {self.hash}',
+               F'{TAB2}Тело блока:',
+               f'{TAB3}Coinbase: {self.coinbase}',
+               f'{TAB3}Транзакции:']
+
+        for i, tx in enumerate(self.transactions, 1):
+            res.append(f'{TAB4}Транзакция {i}{tx}')
+        res.append(f'\t{RIGHT_P}\n')
+
+        return '\n'.join(res)
 
 
 class Client:
@@ -301,8 +342,7 @@ if __name__ == '__main__':
 
     nodes[1].receive_block(current_block)
     nodes[2].receive_block(current_block)
-    for node in nodes:
-        print(node.chain)
+    print(nodes[2].chain)
 
     # 2 block
     # miner_node = 0
