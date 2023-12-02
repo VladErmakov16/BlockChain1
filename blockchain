@@ -235,6 +235,9 @@ class Node:
                          'amount': transaction_input['input_amount']}
                 if utxo in self.utxo:
                     self.utxo.remove(utxo)
+                else:
+                    print('Ошибка. Повторная трата монет')
+                    return -1
 
         # добавление output_UTXO каждой транзакции в свой список UTXO
         for transaction in block.transactions:
@@ -410,14 +413,60 @@ def normal():
     print(nodes[2].chain)
 
 def bad():
+    client1 = Client('Alice')
+    client2 = Client('Dima')
+    client3 = Client('Vlad')
+    client4 = Client('Anton')
+    clients = [client1, client2, client3, client4]
+    node1 = Node(1, client1)
+    node2 = Node(2, client2)
+    node3 = Node(3, client3)
+    nodes = [node1, node2, node3]
     # плохой сценарий
     # todo: 1. нода, выбранная лидером и формирующая новый блок, обнаруживает попытку клиента повторно потратить UTXO,
     #  который уже есть в её списке UTXO;
+    # genesis block
+    miner_node = 0
+    print(nodes[0].utxo)
+    current_block = nodes[miner_node].create_genesis_block()
+    nodes[2].receive_block(current_block)
+    nodes[1].receive_block(current_block)
+    update_balances(clients, current_block)
+    time.sleep(1)
+
+    # 1 block
+    miner_node = 0
+    #todo: майнер должен отправить деревянные client4 (пусть будет 3 монеты, 2 переведёт себе)
+    #создать соответствующую транзакцию
+    client_inputs = [
+       {
+           'input_address': client1.address,
+           'input_amount': 5
+       }
+    ]
+    client_outputs = [
+       {
+           'output_address': client1.address,
+           'output_amount': 2
+       },
+       {
+           'output_address': client4.address,
+           'output_amount': 3
+       }
+    ]
+    tx = client1.create_transaction(client_inputs, client_outputs)
+    nodes[1].add_transactions([tx, tx])
+    current_block = nodes[1].mine_block()
+    print('Просто строка')
+    nodes[0].receive_block(current_block)
+    print('Просто вторая строка')
+    nodes[2].receive_block(current_block)
+    update_balances(clients, nodes[2].chain[-1])
     # todo: 2. нода, получающая новый блок от другой ноды, обнаруживает ошибки при проверке условий 1) – 10) (внесём
     #  ошибку в хеш блока)
     # todo: 3. клиент пытается создать транзакцию, у которой сумма output_UTXO превышает баланс его криптокошелька.
 
 # Пример использования
 if __name__ == '__main__':
-    normal()
+    #normal()
     bad()
