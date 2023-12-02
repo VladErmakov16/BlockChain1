@@ -148,15 +148,17 @@ class Client:
     def read_transaction(self, block: Block):
         """Чтение транзакции"""
         for transaction in block.transactions:
-            for input_utxo in transaction.inputs:
-                if input_utxo["input_address"] == self.address:
-                    self.utxo.remove(input_utxo)
-                    self.balance -= input_utxo["input_amount"]
+            for transaction_input in transaction.inputs:
+                utxo = {'address': transaction_input['input_address'], 'amount': transaction_input['input_amount']}
+                if utxo["address"] == self.address:
+                    self.utxo.remove(utxo)
+                    self.balance -= utxo["amount"]
 
-            for output_utxo in transaction.inputs:
-                if output_utxo["output_address"] == self.address:
-                    self.utxo.append(output_utxo)
-                    self.balance += output_utxo["output_amount"]
+            for transaction_output in transaction.outputs:
+                utxo = {'address': transaction_output['output_address'], 'amount': transaction_output['output_amount']}
+                if utxo["address"] == self.address:
+                    self.utxo.append(utxo)
+                    self.balance += utxo["amount"]
 
     def get_balance(self):
         """Получение текущего баланса пользователя"""
@@ -177,6 +179,7 @@ class Node:
         miner_transaction = self.create_miner_transaction()
         genesis_block = Block(0, 0x0, INITIAL_COINBASE_AMOUNT, [miner_transaction])
         genesis_block.mine()
+        self.finalize_block(genesis_block)
         self.chain.append(genesis_block)
         return genesis_block
 
@@ -204,7 +207,7 @@ class Node:
         miner_inputs = [
             {
                 'input_address': 0x0,
-                'input_amount': self.chain[-1].coinbase if len(self.chain) > 0 else INITIAL_COINBASE_AMOUNT
+                'input_amount': self.chain[-1].coinbase - BLOCK_REWARD if len(self.chain) > 0 else INITIAL_COINBASE_AMOUNT
             }
         ]
         miner_outputs = [
@@ -214,7 +217,7 @@ class Node:
             },
             {
                 'output_address': 0x0,
-                'output_amount': self.chain[-1].coinbase - BLOCK_REWARD if len(self.chain) > 0 else INITIAL_COINBASE_AMOUNT - BLOCK_REWARD
+                'output_amount': self.chain[-1].coinbase - 2 * BLOCK_REWARD if len(self.chain) > 0 else INITIAL_COINBASE_AMOUNT - BLOCK_REWARD
             }
         ]
         return Transaction(inputs=miner_inputs, outputs=miner_outputs, signature=0x0, public_key=0x0)
@@ -228,7 +231,8 @@ class Node:
         # исключение input_UTXO каждой транзакции из своего списка UTXO
         for transaction in block.transactions:
             for transaction_input in transaction.inputs:
-                utxo = {'address': transaction_input['input_address'], 'amount': transaction_input['input_amount']}
+                utxo = {'address': transaction_input['input_address'],
+                         'amount': transaction_input['input_amount']}
                 if utxo in self.utxo:
                     self.utxo.remove(utxo)
 
@@ -242,6 +246,7 @@ class Node:
     def receive_block(self, block):
         """Получение блока от другого узла сети"""
         if len(self.chain) == 0:
+            self.finalize_block(block)
             self.chain.append(block)
             return
         is_block_valid = self.validate_block(block)
@@ -312,21 +317,27 @@ class Node:
         # todo: check transactions signatures
 
         # utxo обновляются здесь
+        #print(self.utxo)
         self.finalize_block(block)
+        #print(self.utxo)
 
         # все проверки пройдены успешно, включаем блок в цепочку
         self.chain.append(block)
         return True
 
+def update_balances(clients, block):
+    for client in clients:
+        client.read_transaction(block)
+        print(client.get_balance())
 
-# Пример использования
-if __name__ == '__main__':
+def normal():
     # кайфовый сценарий
     # создание клиентов и нод
     client1 = Client('Alice')
     client2 = Client('Dima')
     client3 = Client('Vlad')
     client4 = Client('Anton')
+    clients = [client1, client2, client3, client4]
     node1 = Node(1, client1)
     node2 = Node(2, client2)
     node3 = Node(3, client3)
@@ -334,35 +345,79 @@ if __name__ == '__main__':
 
     # genesis block
     miner_node = 0
+    print(nodes[0].utxo)
     current_block = nodes[miner_node].create_genesis_block()
     nodes[2].receive_block(current_block)
     nodes[1].receive_block(current_block)
+    print(nodes[0].utxo)
+    print(nodes[1].utxo)
+    update_balances(clients, current_block)
     time.sleep(1)
 
     # 1 block
     miner_node = 0
-    # todo: майнер должен отправить деревянные client4 (пусть будет 3 монеты, 2 переведёт себе)
-    # создать соответствующую транзакцию
-    current_block = nodes[miner_node].mine_block()
-
-    nodes[1].receive_block(current_block)
+    #todo: майнер должен отправить деревянные client4 (пусть будет 3 монеты, 2 переведёт себе)
+    #создать соответствующую транзакцию
+    client_inputs = [
+       {
+           'input_address': client1.address,
+           'input_amount': 5
+       }
+    ]
+    client_outputs = [
+       {
+           'output_address': client1.address,
+           'output_amount': 2
+       },
+       {
+           'output_address': client4.address,
+           'output_amount': 3
+       }
+    ]
+    tx = client1.create_transaction(client_inputs, client_outputs)
+    nodes[1].add_transactions([tx])
+    current_block = nodes[1].mine_block()
+    nodes[0].receive_block(current_block)
     nodes[2].receive_block(current_block)
+    print(nodes[0].utxo)
+    print(nodes[1].utxo)
+
+    update_balances(clients, current_block)
+    # 2 block
+    time.sleep(1)
+    client_inputs = [
+       {
+           'input_address': client4.address,
+           'input_amount': 3
+       }
+    ]
+    client_outputs = [
+       {
+           'output_address': client4.address,
+           'output_amount': 1
+       },
+       {
+           'output_address': client2.address,
+           'output_amount': 2
+       }
+    ]
+    tx = client1.create_transaction(client_inputs, client_outputs)
+    nodes[2].add_transactions([tx])
+    current_block = nodes[2].mine_block()
+    nodes[0].receive_block(current_block)
+    nodes[1].receive_block(current_block)
+    update_balances(clients, current_block)
     print(nodes[2].chain)
 
-    # 2 block
-    # miner_node = 0
-    # todo: client 4 должен отправить деревянные любому клиенту, оставляя себе сдачу
-    # создать соответствующую транзакцию
-    # current_block = nodes[miner_node].mine_block()
-    #
-    # nodes[1].receive_block(current_block)
-    # nodes[2].receive_block(current_block)
-    # for node in nodes:
-    #     print(node.chain)
-
+def bad():
     # плохой сценарий
     # todo: 1. нода, выбранная лидером и формирующая новый блок, обнаруживает попытку клиента повторно потратить UTXO,
     #  который уже есть в её списке UTXO;
     # todo: 2. нода, получающая новый блок от другой ноды, обнаруживает ошибки при проверке условий 1) – 10) (внесём
     #  ошибку в хеш блока)
     # todo: 3. клиент пытается создать транзакцию, у которой сумма output_UTXO превышает баланс его криптокошелька.
+
+# Пример использования
+if __name__ == '__main__':
+    normal()
+    bad()
