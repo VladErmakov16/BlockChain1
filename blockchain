@@ -174,7 +174,8 @@ class Node:
 
     def create_genesis_block(self):
         """Создание генезис-блока"""
-        genesis_block = Block(0, 0x0, INITIAL_COINBASE_AMOUNT, [])
+        miner_transaction = self.create_miner_transaction()
+        genesis_block = Block(0, 0x0, INITIAL_COINBASE_AMOUNT, [miner_transaction])
         genesis_block.mine()
         self.chain.append(genesis_block)
         return genesis_block
@@ -203,7 +204,7 @@ class Node:
         miner_inputs = [
             {
                 'input_address': 0x0,
-                'input_amount': self.chain[-1].coinbase
+                'input_amount': self.chain[-1].coinbase if len(self.chain) > 0 else INITIAL_COINBASE_AMOUNT
             }
         ]
         miner_outputs = [
@@ -213,7 +214,7 @@ class Node:
             },
             {
                 'output_address': 0x0,
-                'output_amount': self.chain[-1].coinbase - BLOCK_REWARD
+                'output_amount': self.chain[-1].coinbase - BLOCK_REWARD if len(self.chain) > 0 else INITIAL_COINBASE_AMOUNT - BLOCK_REWARD
             }
         ]
         return Transaction(inputs=miner_inputs, outputs=miner_outputs, signature=0x0, public_key=0x0)
@@ -303,6 +304,10 @@ class Node:
                 return False
 
         # 9) Проверка цифровых подписей
+#        for transaction in block.transactions:
+#            if not self.verify_transaction_signature(transaction):
+#                print('Проверка цифровых подписей провалилась')
+#                return False
         # (Для упрощения считаем, что все подписи верны)
         # todo: check transactions signatures
 
